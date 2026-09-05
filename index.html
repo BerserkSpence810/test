@@ -9,6 +9,7 @@
 <meta name="apple-mobile-web-app-title" content="Plate">
 <meta name="theme-color" content="#08050C">
 <link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' fill='%2308050C'/%3E%3Ccircle cx='90' cy='90' r='58' fill='none' stroke='%23A970FF' stroke-width='14'/%3E%3Ccircle cx='90' cy='90' r='14' fill='%23A970FF'/%3E%3C/svg%3E">
+<link rel="manifest" href="manifest.webmanifest">
 <title>Plate — lifting log</title>
 <style>
 :root{
@@ -182,6 +183,15 @@ svg.chart{width:100%;height:130px;display:block;overflow:visible}
   background:var(--surf2);border:1px solid var(--purDim);padding:10px 16px;border-radius:999px;
   font-size:13.5px;z-index:70;opacity:0;transition:opacity .2s;pointer-events:none;max-width:88%;text-align:center}
 .toast.on{opacity:1}
+.setrow .tick.del{background:none;border-color:#4E2430;color:var(--back);font-size:17px;font-weight:700}
+.hsess{background:var(--surf);border:1px solid var(--line);border-radius:var(--r);margin-bottom:10px;overflow:hidden}
+.hsess.open{border-color:var(--purDim)}
+.hhead{display:flex;align-items:center;gap:10px;padding:13px 14px;width:100%;text-align:left;
+  background:none;border:0;color:inherit}
+.hhead .cv{color:var(--dim2);font-size:13px;flex:none}
+.hbody{padding:0 14px 14px;border-top:1px solid var(--line)}
+.exhd{display:flex;align-items:center;gap:8px;margin:16px 0 2px}
+.exhd .t{flex:1;font-weight:700;font-size:15px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
@@ -195,6 +205,7 @@ svg.chart{width:100%;height:130px;display:block;overflow:visible}
 
 <main>
   <section class="view on" id="v-train"></section>
+  <section class="view" id="v-history"></section>
   <section class="view" id="v-program"></section>
   <section class="view" id="v-volume"></section>
   <section class="view" id="v-progress"></section>
@@ -209,6 +220,7 @@ svg.chart{width:100%;height:130px;display:block;overflow:visible}
 
 <nav>
   <button class="on" data-v="train"><svg viewBox="0 0 24 24"><path d="M4 9v6M8 7v10M16 7v10M20 9v6M8 12h8"/></svg>Train</button>
+  <button data-v="history"><svg viewBox="0 0 24 24"><path d="M3.2 12a8.8 8.8 0 1 0 2.6-6.2M3 4.5V9h4.5M12 7.5V12l3 2"/></svg>History</button>
   <button data-v="program"><svg viewBox="0 0 24 24"><path d="M5 4h14v16H5zM9 9h6M9 13h6M9 17h3"/></svg>Program</button>
   <button data-v="volume"><svg viewBox="0 0 24 24"><path d="M4 20V10M10 20V4M16 20v-8M22 20H2"/></svg>Volume</button>
   <button data-v="progress"><svg viewBox="0 0 24 24"><path d="M3 17l5-6 4 4 6-8M21 7h-4M21 7v4"/></svg>Progress</button>
@@ -347,6 +359,7 @@ const DB={
 };
 
 let S=null;
+const BUILD='2026-09-05';
 const uid=()=>Math.random().toString(36).slice(2,9);
 
 /* ===== Recomp, exactly as written =====
@@ -508,7 +521,7 @@ function render(){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
   $('v-'+tab).classList.add('on');
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===tab));
-  ({train:renderTrain,program:renderProgram,volume:renderVolume,progress:renderProgress})[tab]();
+  ({train:renderTrain,history:renderHistory,program:renderProgram,volume:renderVolume,progress:renderProgress})[tab]();
 }
 
 /* ---- train ---- */
@@ -533,7 +546,9 @@ function renderTrain(){
       <div class="card small">
         <div class="between"><b>${esc(last.dayName)}</b><span class="dim2">${fmtDate(last.date)}</span></div>
         <div class="dim" style="margin-top:6px">${last.ex.map(e=>`${esc(exById(e.exId)?.n||'?')} — ${e.sets.map(s=>s.w+'×'+s.reps).join(', ')}`).join('<br>')}</div>
-      </div>`:`<div class="empty"><h3>Nothing logged yet</h3><p class="small">Start day 1. After one session Plate tells you the exact load and reps to hit on every lift.</p></div>`}`;
+        <button class="btn sm wide mt" onclick="editSession('${last.id}')">Fix something in this session</button>
+      </div>
+      <button class="btn wide" onclick="tab='history';render();window.scrollTo(0,0)">All ${S.history.length} sessions</button>`:`<div class="empty"><h3>Nothing logged yet</h3><p class="small">Start day 1. After one session Plate tells you the exact load and reps to hit on every lift.</p></div>`}`;
 }
 function startDay(dayId){
   const d=S.program.days.find(x=>x.id===dayId);
@@ -544,7 +559,7 @@ function startDay(dayId){
 function renderSession(el){
   const day=S.program.days.find(d=>d.id===S.session.dayId);
   const total=day.ex.reduce((a,c)=>a+c.sets,0);
-  const done=S.session.ex.reduce((a,e)=>a+e.sets.length,0);
+  const done=S.session.ex.reduce((a,e)=>a+e.sets.filter(Boolean).length,0);
   let body='',i=0;
   while(i<day.ex.length){
     const c=day.ex[i];
@@ -570,21 +585,23 @@ function renderSession(el){
 function exCard(cfg,i){
   const ex=exById(cfg.exId),ent=S.session.ex[i],rx=prescribe(cfg);
   const h=histFor(cfg.exId)[0];
+  const first=ent.sets.filter(Boolean)[0];
   const rows=[];
-  for(let s=0;s<cfg.sets;s++){
+  const nRows=Math.max(cfg.sets,ent.sets.length);
+  for(let s=0;s<nRows;s++){
     const d=ent.sets[s],isTop=s===0;
-    const base=ent.sets[0]?ent.sets[0].reps:rx.reps;
-    const defW=d?d.w:(ent.sets[0]?ent.sets[0].w:(rx.w==null?'':rx.w));
+    const base=first?first.reps:rx.reps;
+    const defW=d?d.w:(first?first.w:(rx.w==null?'':rx.w));
     const defR=d?d.reps:(isTop?rx.reps:Math.max(1,base-s));
     const defQ=d?d.rir:targetRirOf(cfg);
     rows.push(`<div class="setrow ${d?'done':''}">
       <div class="n">${s+1}</div>
-      <input type="number" inputmode="decimal" step="0.5" id="w_${i}_${s}" value="${defW===''?'':defW}" placeholder="${S.unit}" ${d?'disabled':''}>
-      <input type="number" inputmode="numeric" id="r_${i}_${s}" value="${defR||''}" placeholder="reps" ${d?'disabled':''}>
-      <select id="q_${i}_${s}" ${d?'disabled':''}>
+      <input type="number" inputmode="decimal" step="0.5" id="w_${i}_${s}" value="${defW===''?'':defW}" placeholder="${S.unit}" onchange="editLive(${i},${s})">
+      <input type="number" inputmode="numeric" id="r_${i}_${s}" value="${defR||''}" placeholder="reps" onchange="editLive(${i},${s})">
+      <select id="q_${i}_${s}" onchange="editLive(${i},${s})">
         ${[0,1,2,3,4].map(v=>`<option value="${v}" ${v===defQ?'selected':''}>${v===0?'fail':v+' left'}</option>`).join('')}
       </select>
-      <button class="tick" onclick="logSet(${i},${s})" ${d?'disabled':''}>
+      <button class="tick" onclick="${d?`unlogSet(${i},${s})`:`logSet(${i},${s})`}" aria-label="${d?'Unlog set':'Log set'}">
         <svg viewBox="0 0 24 24"><path d="M4 12l6 6L20 6"/></svg></button>
     </div>`);
   }
@@ -596,7 +613,11 @@ function exCard(cfg,i){
     ${h?`<div class="tiny dim2" style="margin-top:6px">Last: ${h.sets.map(s=>`${s.w}×${s.reps}`).join('  ')} · e1RM ${Math.round(e1rm(h.sets[0].w,h.sets[0].reps,h.sets[0].rir))}${S.unit}</div>`:''}
     <div class="hdrow"><span>set</span><span>${S.unit}</span><span>reps</span><span>effort</span><span></span></div>
     ${rows.join('')}
-    <div class="tiny dim2" style="margin-top:9px">${cfg.sets} × ${cfg.lo}–${cfg.hi} · ${effortLabel(cfg)} · rest ${cfg.rest}s</div>
+    <div class="row mt" style="gap:8px">
+      <button class="btn sm ghost" onclick="addLiveSet(${i})">+ Extra set</button>
+      ${nRows>cfg.sets?`<button class="btn sm ghost" onclick="dropLiveSet(${i})">− Row</button>`:''}
+    </div>
+    <div class="tiny dim2" style="margin-top:9px">${cfg.sets} × ${cfg.lo}–${cfg.hi} · ${effortLabel(cfg)} · rest ${cfg.rest}s · tap a ticked ✓ to unlock that set</div>
   </div>`;
 }
 function logSet(i,s){
@@ -604,7 +625,9 @@ function logSet(i,s){
   const r=parseInt($('r_'+i+'_'+s).value)||0;
   const q=parseInt($('q_'+i+'_'+s).value)||0;
   if(!r) return toast('Add reps first');
-  S.session.ex[i].sets[s]={w,reps:r,rir:q};
+  const arr=S.session.ex[i].sets;
+  arr[s]={w,reps:r,rir:q};
+  for(let k=0;k<arr.length;k++) if(arr[k]===undefined) arr[k]=null;
   const day=S.program.days.find(d=>d.id===S.session.dayId);
   const cfg=day.ex[i];
   save();render();
@@ -615,9 +638,38 @@ function logSet(i,s){
     startRest(cfg.rest);
   }
 }
+/* edit a set that is already ticked, without re-rendering under your thumb */
+function editLive(i,s){
+  const d=S.session.ex[i].sets[s]; if(!d) return;
+  d.w=parseFloat($('w_'+i+'_'+s).value)||0;
+  d.reps=parseInt($('r_'+i+'_'+s).value)||0;
+  d.rir=parseInt($('q_'+i+'_'+s).value)||0;
+  if(!d.reps){S.session.ex[i].sets[s]=null;save();render();return toast('Set removed');}
+  save();
+}
+function unlogSet(i,s){
+  S.session.ex[i].sets[s]=null;
+  while(S.session.ex[i].sets.length&&S.session.ex[i].sets[S.session.ex[i].sets.length-1]==null) S.session.ex[i].sets.pop();
+  save();render();toast('Set unlocked — edit and tick again');
+}
+function addLiveSet(i){
+  const arr=S.session.ex[i].sets;
+  const day=S.program.days.find(d=>d.id===S.session.dayId);
+  const target=Math.max(day.ex[i].sets,arr.length)+1;
+  while(arr.length<target-1) arr.push(null);
+  arr.push(null);
+  save();render();
+}
+function dropLiveSet(i){
+  const arr=S.session.ex[i].sets;
+  const day=S.program.days.find(d=>d.id===S.session.dayId);
+  if(arr.length<=day.ex[i].sets) return;
+  arr.pop();save();render();
+}
 function cancelSession(){if(confirm('Discard this session? Nothing gets saved.')){S.session=null;stopRest();save();render();}}
 function finishSession(){
   const s=S.session;
+  s.ex.forEach(e=>{e.sets=e.sets.filter(Boolean)});
   s.ex=s.ex.filter(e=>e.sets.length);
   if(!s.ex.length) return toast('No sets logged yet');
   S.history.push({id:uid(),date:s.date,dayId:s.dayId,dayName:s.dayName,ex:s.ex,
@@ -715,9 +767,11 @@ function renderProgram(){
       </div>
       <div class="grid2 mt">
         <button class="btn sm" onclick="toggleUnit()">Units: ${S.unit}</button>
-        <button class="btn sm danger" onclick="wipe()">Reset to Recomp</button>
+        <button class="btn sm" onclick="restoreAuto()">Restore auto-backup</button>
       </div>
-      <p class="tiny dim2 mt">Everything lives on this device only. Export now and then so a cleared browser can't take your history with it.</p>
+      <button class="btn sm wide mt danger" onclick="wipe()">Reset to Recomp (erases history)</button>
+      <p class="tiny dim2 mt">Your ${S.history.length} sessions live in this browser's storage on this device. Updating the site never touches them. Export a backup now and then anyway — clearing Safari's website data would take them with it.</p>
+      <p class="tiny dim2">Build ${BUILD}</p>
     </div>`;
 }
 function renameProgram(){const n=prompt('Program name',S.program.name);if(n){S.program.name=n;save();render();}}
@@ -730,14 +784,20 @@ function moveEx(dayId,cid,dir){
   if(j<0||j>=d.ex.length)return;[d.ex[i],d.ex[j]]=[d.ex[j],d.ex[i]];save();render();
 }
 function toggleUnit(){S.unit=S.unit==='kg'?'lb':'kg';save();render();}
-function wipe(){if(confirm('Reset the program and erase all history?')){S=seed();save();render();}}
+function wipe(){
+  if(!confirm('Reset the program and erase all '+S.history.length+' logged sessions?')) return;
+  if(prompt('Type ERASE to confirm. Your last auto-backup would be the only way back.')!=='ERASE') return toast('Nothing erased');
+  S=seed();save();render();
+}
+function editSession(id){tab='history';openHist=id;render();window.scrollTo(0,0);}
 
 let pickTarget=null;
-function pickEx(dayId){
-  pickTarget=dayId;
+function pickEx(dayId){ pickTarget={kind:'day',id:dayId}; openSheet(exPickerHTML('Add an exercise')); }
+function pickHistEx(sid){ pickTarget={kind:'hist',id:sid}; openSheet(exPickerHTML('Add a lift you forgot to log')); }
+function exPickerHTML(title){
   const groups={};
   EX.forEach(e=>{const g=Object.entries(e.m).sort((a,b)=>b[1]-a[1])[0][0];(groups[g]=groups[g]||[]).push(e)});
-  openSheet(`<h2>Add an exercise</h2>
+  return (`<h2>${esc(title)}</h2>
     <input type="text" id="exq" placeholder="Search" oninput="filterEx()" autocomplete="off">
     <div id="exlist" class="mt">${MORDER.filter(k=>groups[k]).map(k=>`
       <div class="sect">${M[k].n}</div>
@@ -756,7 +816,12 @@ function filterEx(){
   });
 }
 function addExercise(exId){
-  const d=S.program.days.find(x=>x.id===pickTarget),ex=exById(exId);
+  if(pickTarget&&pickTarget.kind==='hist'){
+    const sess=S.history.find(x=>x.id===pickTarget.id);
+    if(sess){ sess.ex.push({exId,sets:[{w:0,reps:0,rir:0}]}); }
+    closeSheet();save();render();return;
+  }
+  const d=S.program.days.find(x=>x.id===pickTarget.id),ex=exById(exId);
   d.ex.push({id:uid(),exId,sets:3,lo:8,hi:12,rest:90,ss:null,start:null,note:'',effort:'all',rir:1,inc:ex.inc});
   closeSheet();save();render();
 }
@@ -794,6 +859,119 @@ function saveEx(dayId,cid){
   c.ss=$('e_ss').value||null;c.effort=$('e_eff').value;c.rir=+$('e_rir').value||0;
   c.note=$('e_note').value;
   closeSheet();save();render();
+}
+</script>
+<script>
+/* ---- history: view + edit any past session ---- */
+let openHist=null;
+const setCount=s=>s.ex.reduce((a,e)=>a+e.sets.length,0);
+function histOrder(){
+  return S.history.map((s,i)=>({s,i}))
+    .sort((a,b)=>a.s.date===b.s.date?b.i-a.i:b.s.date.localeCompare(a.s.date));
+}
+function renderHistory(){
+  const el=$('v-history');
+  if(!S.history.length){
+    el.innerHTML='<div class="empty"><h3>No sessions yet</h3><p class="small">Every session you finish lands here, and stays editable forever — wrong weight, wrong reps, wrong day, all fixable.</p></div>';
+    return;
+  }
+  el.innerHTML=`
+    <div class="between" style="margin-bottom:12px">
+      <h2 style="font-size:20px">History</h2>
+      <span class="dim2 small num">${S.history.length} sessions · ${S.history.reduce((a,s)=>a+setCount(s),0)} sets</span>
+    </div>
+    <div class="card small dim">Tap a session to open it. Weights, reps and effort save the moment you leave the box — you can also add or delete sets, add a lift you forgot, or move the whole session to another date.</div>
+    ${histOrder().map(({s})=>histCard(s)).join('')}`;
+}
+function histCard(s){
+  const open=openHist===s.id;
+  return `<div class="hsess ${open?'open':''}">
+    <button class="hhead" onclick="toggleHist('${s.id}')">
+      <div style="flex:1;min-width:0">
+        <div class="nm" style="font-weight:700">${esc(s.dayName||'Session')}</div>
+        <div class="tiny dim2">${fmtDate(s.date)} · ${setCount(s)} sets${s.mins?' · '+s.mins+' min':''}</div>
+      </div>
+      <div class="cv">${open?'▲':'▼'}</div>
+    </button>
+    ${open?`<div class="hbody">${histEditor(s)}</div>`:`
+      <div style="padding:0 14px 13px" class="tiny dim2">${s.ex.map(e=>`${esc(exById(e.exId)?.n||e.exId)} — ${e.sets.map(x=>x.w+'×'+x.reps).join(', ')}`).join('<br>')}</div>`}
+  </div>`;
+}
+function histEditor(s){
+  const body=s.ex.map((e,ei)=>{
+    const ex=exById(e.exId);
+    return `<div class="exhd">
+        <div class="t">${esc(ex?ex.n:e.exId)}</div>
+        <span class="pill">${ex?ex.e:'?'}</span>
+        <button class="iconbtn" onclick="histDelEx('${s.id}',${ei})">×</button>
+      </div>
+      <div class="hdrow"><span>set</span><span>${S.unit}</span><span>reps</span><span>effort</span><span></span></div>
+      ${e.sets.map((st,si)=>`<div class="setrow">
+        <div class="n">${si+1}</div>
+        <input type="number" inputmode="decimal" step="0.5" id="hw_${s.id}_${ei}_${si}" value="${st.w}" onchange="histEdit('${s.id}',${ei},${si})">
+        <input type="number" inputmode="numeric" id="hr_${s.id}_${ei}_${si}" value="${st.reps}" onchange="histEdit('${s.id}',${ei},${si})">
+        <select id="hq_${s.id}_${ei}_${si}" onchange="histEdit('${s.id}',${ei},${si})">
+          ${[0,1,2,3,4].map(v=>`<option value="${v}" ${v===(st.rir||0)?'selected':''}>${v===0?'fail':v+' left'}</option>`).join('')}
+        </select>
+        <button class="tick del" onclick="histDelSet('${s.id}',${ei},${si})">×</button>
+      </div>`).join('')}
+      <button class="btn sm ghost mt" onclick="histAddSet('${s.id}',${ei})">+ Add set</button>`;
+  }).join('');
+  return `${body}
+    <div class="sect">Session</div>
+    <div class="grid2">
+      <div><label class="f">Date</label><input type="date" id="hd_${s.id}" value="${s.date}" onchange="histDate('${s.id}',this.value)"></div>
+      <div><label class="f">Minutes</label><input type="number" inputmode="numeric" value="${s.mins||0}" onchange="histMins('${s.id}',this.value)"></div>
+    </div>
+    <div class="grid2 mt">
+      <button class="btn sm" onclick="pickHistEx('${s.id}')">Add a lift</button>
+      <button class="btn sm" onclick="histRename('${s.id}')">Rename day</button>
+    </div>
+    <button class="btn sm wide mt danger" onclick="histDelSession('${s.id}')">Delete this session</button>
+    <p class="tiny dim2 mt">Changing a past session re-runs your progression — the next prescription for those lifts updates straight away.</p>`;
+}
+function hSess(id){return S.history.find(x=>x.id===id);}
+function toggleHist(id){openHist=openHist===id?null:id;render();}
+function histEdit(id,ei,si){
+  const s=hSess(id); if(!s) return;
+  const st=s.ex[ei].sets[si]; if(!st) return;
+  st.w=parseFloat($('hw_'+id+'_'+ei+'_'+si).value)||0;
+  st.reps=parseInt($('hr_'+id+'_'+ei+'_'+si).value)||0;
+  st.rir=parseInt($('hq_'+id+'_'+ei+'_'+si).value)||0;
+  save();toast('Saved');
+}
+function histAddSet(id,ei){
+  const s=hSess(id),sets=s.ex[ei].sets,last=sets[sets.length-1];
+  sets.push(last?{w:last.w,reps:last.reps,rir:last.rir}:{w:0,reps:0,rir:0});
+  save();render();
+}
+function histDelSet(id,ei,si){
+  const s=hSess(id);
+  s.ex[ei].sets.splice(si,1);
+  if(!s.ex[ei].sets.length) s.ex.splice(ei,1);
+  if(!s.ex.length){ if(confirm('That was the last set in this session. Delete the session?')){ S.history=S.history.filter(x=>x.id!==id); openHist=null; } else { s.ex.push({exId:EX[0].id,sets:[{w:0,reps:0,rir:0}]}); } }
+  save();render();
+}
+function histDelEx(id,ei){
+  const s=hSess(id),ex=exById(s.ex[ei].exId);
+  if(!confirm('Remove '+(ex?ex.n:'this lift')+' from this session?')) return;
+  s.ex.splice(ei,1);
+  if(!s.ex.length){S.history=S.history.filter(x=>x.id!==id);openHist=null;}
+  save();render();
+}
+function histDate(id,v){
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(v)) return toast('Pick a valid date');
+  hSess(id).date=v;save();render();toast('Moved to '+fmtDate(v));
+}
+function histMins(id,v){hSess(id).mins=Math.max(0,parseInt(v)||0);save();}
+function histRename(id){
+  const s=hSess(id),n=prompt('What day was this?',s.dayName||'');
+  if(n!==null&&n.trim()){s.dayName=n.trim();save();render();}
+}
+function histDelSession(id){
+  const s=hSess(id);
+  if(!confirm('Delete '+(s.dayName||'this session')+' from '+fmtDate(s.date)+'? This cannot be undone.')) return;
+  S.history=S.history.filter(x=>x.id!==id);openHist=null;save();render();toast('Session deleted');
 }
 </script>
 <script>
@@ -910,9 +1088,46 @@ function doImport(){
   }catch(e){toast('That backup could not be read');}
 }
 
+const BAK=KEY+':bak';
+function autoBackup(o){
+  try{
+    if(!o||!o.history||!o.history.length) return;
+    localStorage.setItem(BAK,JSON.stringify({at:Date.now(),sessions:o.history.length,data:o}));
+  }catch(e){}
+}
+function restoreAuto(){
+  let b=null;
+  try{b=JSON.parse(localStorage.getItem(BAK));}catch(e){}
+  if(!b||!b.data) return toast('No auto-backup on this device yet');
+  const when=new Date(b.at).toLocaleString('en-AU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
+  if(!confirm('Roll back to the snapshot taken '+when+' ('+b.sessions+' sessions)? Anything logged since then is lost.')) return;
+  S=normalize(b.data);S.session=null;save();render();toast('Auto-backup restored');
+}
+/* repair anything a half-written save or an older build left behind */
+function normalize(o){
+  o.history=Array.isArray(o.history)?o.history:[];
+  o.history.forEach(h=>{
+    if(!h.id) h.id=uid();
+    if(!h.date) h.date=new Date().toISOString().slice(0,10);
+    h.ex=(h.ex||[]).filter(e=>e&&Array.isArray(e.sets));
+    h.ex.forEach(e=>{e.sets=e.sets.filter(Boolean).map(x=>({w:+x.w||0,reps:+x.reps||0,rir:+x.rir||0}))});
+    h.ex=h.ex.filter(e=>e.sets.length);
+  });
+  o.history=o.history.filter(h=>h.ex.length);
+  if(o.session&&Array.isArray(o.session.ex)) o.session.ex.forEach(e=>{if(!Array.isArray(e.sets))e.sets=[]});
+  return o;
+}
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{tab=b.dataset.v;render();window.scrollTo(0,0)});
 function save(){DB.save(S);}
-(async()=>{S=await DB.load();if(!S||!S.program||!S.program.days){S=seed();await DB.save(S);}render();})();
+(async()=>{
+  S=await DB.load();
+  if(!S||!S.program||!S.program.days){S=seed();await DB.save(S);}
+  else{autoBackup(S);S=normalize(S);}
+  render();
+})();
+if('serviceWorker' in navigator && location.protocol==='https:'){
+  window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{})});
+}
 </script>
 </body>
 </html>
