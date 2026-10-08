@@ -359,7 +359,7 @@ const DB={
 };
 
 let S=null;
-const BUILD='2026-09-05';
+const BUILD='2026-10-08';
 const uid=()=>Math.random().toString(36).slice(2,9);
 
 /* ===== Recomp, exactly as written =====
@@ -521,7 +521,14 @@ function render(){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('on'));
   $('v-'+tab).classList.add('on');
   document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('on',b.dataset.v===tab));
-  ({train:renderTrain,history:renderHistory,program:renderProgram,volume:renderVolume,progress:renderProgress})[tab]();
+  try{
+    ({train:renderTrain,history:renderHistory,program:renderProgram,volume:renderVolume,progress:renderProgress})[tab]();
+  }catch(err){
+    console.error(err);
+    $('v-'+tab).innerHTML=`<div class="empty"><h3>This screen hit an error</h3>
+      <p class="small">${esc(err&&err.message||err)}</p>
+      ${S.session?`<button class="btn danger mt" onclick="S.session=null;stopRest();save();render()">Discard the live session</button>`:''}</div>`;
+  }
 }
 
 /* ---- train ---- */
@@ -530,7 +537,12 @@ function renderTrain(){
   if(S.session) return renderSession(el);
   const last=S.history[S.history.length-1];
   let next=0;
-  if(last){const i=S.program.days.findIndex(d=>d.id===last.dayId);next=(i+1)%S.program.days.length;}
+  if(last){const i=S.program.days.findIndex(d=>d.id===last.dayId);next=i<0?0:(i+1)%S.program.days.length;}
+  if(!S.program.days.length){
+    el.innerHTML=`<div class="empty"><h3>No training days</h3><p class="small">Add a day in Program to start training.</p>
+      <button class="btn pri mt" onclick="tab='program';render()">Go to Program</button></div>`;
+    return;
+  }
   el.innerHTML=`
     <div class="between" style="margin-bottom:12px"><h2 style="font-size:20px">${esc(S.program.name)}</h2></div>
     ${S.program.days.map((d,i)=>`
@@ -556,8 +568,29 @@ function startDay(dayId){
     ex:d.ex.map(c=>({cfgId:c.id,exId:c.exId,sets:[]}))};
   save();render();window.scrollTo(0,0);
 }
+/* The live session is matched to the program by exercise id, not position,
+   so editing the program (add / delete / reorder / delete a day) can't break it. */
+function fallbackCfg(e){
+  const ex=exById(e.exId);
+  return {id:e.cfgId||e.exId,exId:e.exId,sets:Math.max(1,e.sets.filter(Boolean).length||3),
+    lo:8,hi:12,rest:90,ss:null,start:null,note:'',effort:'all',rir:1,inc:ex?ex.inc:2.5};
+}
+function sessDay(){
+  const s=S.session,day=S.program.days.find(d=>d.id===s.dayId);
+  if(!day) return {name:s.dayName||'Session',ex:s.ex.map(fallbackCfg)};
+  const pool=s.ex.slice(),out=[];
+  for(const c of day.ex){
+    let k=pool.findIndex(e=>e.cfgId===c.id);
+    if(k<0) k=pool.findIndex(e=>!e.cfgId&&e.exId===c.exId);
+    const e=k>=0?pool.splice(k,1)[0]:{cfgId:c.id,exId:c.exId,sets:[]};
+    e.cfgId=c.id;e.exId=c.exId;out.push(e);
+  }
+  const extra=pool.filter(e=>e.sets.some(Boolean)); // removed from program but already logged: keep them
+  s.ex=out.concat(extra);
+  return {name:day.name,ex:day.ex.concat(extra.map(fallbackCfg))};
+}
 function renderSession(el){
-  const day=S.program.days.find(d=>d.id===S.session.dayId);
+  const day=sessDay();
   const total=day.ex.reduce((a,c)=>a+c.sets,0);
   const done=S.session.ex.reduce((a,e)=>a+e.sets.filter(Boolean).length,0);
   let body='',i=0;
@@ -583,7 +616,7 @@ function renderSession(el){
   tickElapsed();
 }
 function exCard(cfg,i){
-  const ex=exById(cfg.exId),ent=S.session.ex[i],rx=prescribe(cfg);
+  const ex=exById(cfg.exId)||{n:cfg.exId,e:'?'},ent=S.session.ex[i]||{sets:[]},rx=prescribe(cfg);
   const h=histFor(cfg.exId)[0];
   const first=ent.sets.filter(Boolean)[0];
   const rows=[];
@@ -628,12 +661,12 @@ function logSet(i,s){
   const arr=S.session.ex[i].sets;
   arr[s]={w,reps:r,rir:q};
   for(let k=0;k<arr.length;k++) if(arr[k]===undefined) arr[k]=null;
-  const day=S.program.days.find(d=>d.id===S.session.dayId);
+  const day=sessDay();
   const cfg=day.ex[i];
   save();render();
   if(cfg.ss&&day.ex[i+1]&&day.ex[i+1].ss===cfg.ss){
     stopRest();
-    toast('Straight into '+exById(day.ex[i+1].exId).n);
+    toast('Straight into '+(exById(day.ex[i+1].exId)?.n||'the next one'));
   }else{
     startRest(cfg.rest);
   }
@@ -654,7 +687,7 @@ function unlogSet(i,s){
 }
 function addLiveSet(i){
   const arr=S.session.ex[i].sets;
-  const day=S.program.days.find(d=>d.id===S.session.dayId);
+  const day=sessDay();
   const target=Math.max(day.ex[i].sets,arr.length)+1;
   while(arr.length<target-1) arr.push(null);
   arr.push(null);
@@ -662,7 +695,7 @@ function addLiveSet(i){
 }
 function dropLiveSet(i){
   const arr=S.session.ex[i].sets;
-  const day=S.program.days.find(d=>d.id===S.session.dayId);
+  const day=sessDay();
   if(arr.length<=day.ex[i].sets) return;
   arr.pop();save();render();
 }
@@ -688,7 +721,7 @@ function summarySheet(sess){
     <div class="sect">Stimulus added</div>
     ${top.map(([k,n])=>`<div class="between small" style="padding:5px 0"><span>${M[k].n}</span><b class="num">${Math.round(n*10)/10} sets</b></div>`).join('')}
     <div class="sect">Next time on this day</div>
-    ${day.ex.map(c=>{const rx=prescribe(c);return `<div class="between small" style="padding:6px 0;border-bottom:1px solid var(--line)">
+    ${(day?day.ex:[]).filter(c=>exById(c.exId)).map(c=>{const rx=prescribe(c);return `<div class="between small" style="padding:6px 0;border-bottom:1px solid var(--line)">
       <span style="flex:1">${esc(exById(c.exId).n)}</span>
       <b class="num" style="color:${rx.kind==='up'?'var(--pur2)':rx.kind==='back'?'var(--back)':'var(--hold)'}">${rx.w==null?'—':rx.w+S.unit} × ${rx.reps}</b></div>`}).join('')}
     <button class="btn pri wide mt" onclick="closeSheet()">Done</button>`);
@@ -749,7 +782,7 @@ function renderProgram(){
         ${d.ex.map(c=>{const ex=exById(c.exId);return `
           <div class="exline">
             <div class="g" onclick="editEx('${d.id}','${c.id}')">
-              <div class="t">${c.ss?`<span style="color:var(--pur2)">${c.ss}·</span> `:''}${esc(ex.n)}</div>
+              <div class="t">${c.ss?`<span style="color:var(--pur2)">${c.ss}·</span> `:''}${esc(ex?ex.n:c.exId)}</div>
               <div class="s">${c.sets}×${c.lo}–${c.hi} · ${effortLabel(c)} · +${c.inc}${S.unit} · ${c.rest}s</div>
             </div>
             <button class="iconbtn" onclick="moveEx('${d.id}','${c.id}',-1)">↑</button>
@@ -1010,7 +1043,7 @@ function renderVolume(){
       <div class="legend"><span><i style="background:var(--low)"></i>under minimum</span><span><i style="background:var(--pur)"></i>growth range</span><span><i style="background:var(--back)"></i>past the ceiling</span></div>
       <p class="tiny dim2 mt">Landmarks are population averages for trained lifters — a starting map, not a rule. If you're recovering fine and still adding reps at the top of your range, more is working for you.</p>
     `:`
-      <div class="card small dim">What Recomp adds up to each week if you complete every session.</div>
+      <div class="card small dim">What ${esc(S.program.name)} adds up to each week if you complete every session.</div>
       ${MORDER.filter(k=>planned[k].sets>0).map(k=>bar(k,planned[k].sets,planned[k].freq,planned[k].sets)).join('')}
       ${under.length?`<div class="card" style="border-color:var(--purDim)">
         <b class="small">Below the minimum</b>
@@ -1114,7 +1147,9 @@ function normalize(o){
     h.ex=h.ex.filter(e=>e.sets.length);
   });
   o.history=o.history.filter(h=>h.ex.length);
-  if(o.session&&Array.isArray(o.session.ex)) o.session.ex.forEach(e=>{if(!Array.isArray(e.sets))e.sets=[]});
+  if(o.session&&!Array.isArray(o.session.ex)) o.session=null;
+  if(o.session) o.session.ex=o.session.ex.filter(e=>e&&e.exId).map(e=>(Array.isArray(e.sets)?e:{...e,sets:[]}));
+  if(o.program&&Array.isArray(o.program.days)) o.program.days.forEach(d=>{d.ex=(d.ex||[]).filter(c=>c&&exById(c.exId))});
   return o;
 }
 document.querySelectorAll('nav button').forEach(b=>b.onclick=()=>{tab=b.dataset.v;render();window.scrollTo(0,0)});
