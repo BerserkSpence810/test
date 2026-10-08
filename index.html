@@ -328,7 +328,15 @@ const EX = [
 {id:'hipt',n:'Hip thrust',e:'Barbell',m:{glutes:1,hams:.4},inc:5},
 {id:'lung',n:'Walking lunge',e:'Dumbbell',m:{quads:1,glutes:.8,adductors:.3},inc:2},
 {id:'scr',n:'Standing calf raise',e:'Machine',m:{calves:1},inc:2.5},
-{id:'sscr',n:'Seated calf raise',e:'Machine',m:{calves:1},inc:2.5}
+{id:'sscr',n:'Seated calf raise',e:'Machine',m:{calves:1},inc:2.5},
+{id:'ismp',n:'Incline Smith press',e:'Machine',m:{chest:1,frontDelts:.5,triceps:.5},inc:2.5},
+{id:'mrw2',n:'Machine row',e:'Machine',m:{upperBack:1,lats:.7,rearDelts:.4,biceps:.4},inc:2.5},
+{id:'cgsb',n:'Close-grip Smith bench',e:'Machine',m:{triceps:1,chest:.6,frontDelts:.4},inc:2.5},
+{id:'dbox',n:'Overhead DB triceps extension',e:'Dumbbell',m:{triceps:1},inc:2},
+{id:'cpd',n:'Cable pushdown',e:'Cable',m:{triceps:1},inc:2.5},
+{id:'ezrc',n:'EZ-bar reverse curl',e:'Barbell',m:{forearms:1,biceps:.5},inc:2.5},
+{id:'fcrl',n:'Finger curl',e:'Barbell',m:{forearms:1},inc:2.5},
+{id:'rwc',n:'Reverse wrist curl',e:'Dumbbell',m:{forearms:1},inc:1}
 ];
 const exById=id=>EX.find(e=>e.id===id);
 
@@ -362,52 +370,61 @@ let S=null;
 const BUILD='2026-10-08';
 const uid=()=>Math.random().toString(36).slice(2,9);
 
-/* ===== Recomp, exactly as written =====
-   [exId, sets, lo, hi, rest, supersetGroup, startWeight, note] */
+/* ===== 5-Day Upper Body Plan (DDP), exactly as written =====
+   [exId, sets, lo, hi, rest, supersetGroup, startWeight, note, compound]
+   compound = heavy lift, stop 0–1 rep short (logged as 1 RIR); everything else to failure */
+const PLAN_VER=2;
 function seed(){
   const mk=(a)=>({id:uid(),exId:a[0],sets:a[1],lo:a[2],hi:a[3],rest:a[4]||90,
     ss:a[5]||null,start:a[6]||null,note:a[7]||'',
-    effort:'all',rir:1,inc:exById(a[0]).inc});
+    effort:a[8]?'rir':'all',rir:1,inc:exById(a[0]).inc});
   const day=(name,list)=>({id:uid(),name,ex:list.map(mk)});
+  const C=true;
   return {
-    unit:'kg',
-    program:{name:'Recomp',days:[
-      day('Arms + delts A',[
-        ['clat',3,12,20,75,null,null,'Strict; no swinging'],
-        ['incc',3,8,12,75,'A',10,'Try 12.5 kg only if pain-free'],
-        ['ohtx',3,8,12,75,'A',null,''],
-        ['hamc',2,10,15,75,'B',null,'Neutral grip, controlled'],
-        ['rpd',3,10,15,75,'B',null,''],
-        ['csrd',3,12,20,60,'C',null,'Light + strict'],
-        ['cbcr',2,10,15,60,'C',null,'']
+    unit:'kg',planVer:PLAN_VER,
+    program:{name:'Upper 5-Day',days:[
+      day('Chest / Triceps / Side Delts',[
+        ['idb',3,6,10,150,null,null,'DDP',C],
+        ['bp',3,8,12,150,null,50,'DDP. Squeeze at the top',C],
+        ['cfly',3,12,15,75,null,null,'Squeeze hard'],
+        ['dbox',3,10,15,75,null,null,''],
+        ['cpd',3,10,15,75,null,null,'To failure'],
+        ['clat',3,12,20,60,null,null,'Side delt']
       ]),
-      day('Chest + back A',[
-        ['ibp',3,6,10,150,null,40,'Start ~40 kg total'],
-        ['latp',3,8,12,120,null,70,'Full ROM'],
-        ['bp',3,6,10,150,null,50,'Start ~50 kg total'],
-        ['mrow',3,8,12,120,null,null,'Clean starting load'],
-        ['cfly',2,12,15,75,'A',null,'Controlled stretch'],
-        ['sapd',2,12,15,75,'A',null,''],
-        ['clat',2,15,20,60,null,null,'Strict']
+      day('Back / Biceps / Forearms',[
+        ['latp',3,6,10,150,null,70,'DDP. Use straps',C],
+        ['mrow',3,8,12,120,null,null,'DDP. Use straps',C],
+        ['srow',3,10,12,120,null,null,'DDP',C],
+        ['face',3,12,15,60,null,null,'Rear delts + posture'],
+        ['incc',3,8,12,90,null,10,'DDP, main biceps lift'],
+        ['hamc',3,8,12,75,null,null,'Controlled. No swinging if elbows are sore'],
+        ['fcrl',3,8,15,60,null,null,'To failure, wrist neutral']
       ]),
-      day('Arms + delts B',[
-        ['clat',3,12,20,75,null,null,'Strict'],
-        ['ezc',3,6,10,90,'A',null,'No hip drive'],
-        ['cgb',3,6,10,90,'A',null,'Only superset if technique stays solid'],
-        ['bayc',2,10,15,75,'B',null,'Use comfortable setup'],
-        ['rpd',2,10,15,75,'B',null,''],
-        ['csrd',3,12,20,60,'C',null,'Light + strict'],
-        ['hamc',2,10,15,60,'C',null,'']
+      day('Chest / Back / Side Delts / Abs',[
+        ['dbp',3,6,10,150,null,null,'DDP',C],
+        ['ismp',3,8,12,120,null,null,'DDP',C],
+        ['latn',3,8,12,120,null,null,'Close neutral grip. DDP. Use straps',C],
+        ['mrw2',3,8,12,120,null,null,'DDP. Use straps',C],
+        ['mlat',3,12,15,60,null,null,'Side delt'],
+        ['mcr',3,10,15,60,null,null,'Or decline bench crunch. Hold a plate on chest to progress']
       ]),
-      day('Chest + back B + legs',[
-        ['idb',3,8,12,150,null,null,'Start conservatively'],
-        ['latp',3,8,12,120,null,70,'Same setup as day 2'],
-        ['srow',3,8,12,120,null,null,'New benchmark; clean reps'],
-        ['bp',2,6,10,150,null,50,'Consistent technique'],
-        ['cfly',2,12,15,75,'A',null,'Controlled'],
-        ['sapd',2,12,15,75,'A',null,''],
-        ['lpr',2,8,12,120,null,null,'Minimal leg maintenance'],
-        ['rdl',2,8,12,150,null,null,'Stop if form breaks']
+      day('Arms / Forearms',[
+        ['lyc',3,8,12,90,null,null,'Flat bench, arms hanging back. DDP. Big stretch'],
+        ['prc',3,10,15,75,null,null,'Machine or EZ. To failure'],
+        ['cgsb',3,6,10,150,null,null,'DDP. Replaces dips',C],
+        ['ohtx',3,10,15,75,null,null,'To failure'],
+        ['cpd',3,10,15,75,null,null,'To failure'],
+        ['ezrc',3,10,15,75,null,null,'Brachioradialis. Easier on wrists than straight bar'],
+        ['rwc',2,12,15,60,null,null,'Extensors. Light, slow']
+      ]),
+      day('Chest / Back / Side Delts / Pump',[
+        ['idb',3,8,12,150,null,null,'DDP',C],
+        ['latp',3,8,12,120,null,70,'DDP. Use straps',C],
+        ['mrow',3,8,12,120,null,null,'DDP. Use straps',C],
+        ['clat',3,12,20,60,null,null,'Side delt'],
+        ['cblc',2,12,15,60,'A',null,'Pump'],
+        ['rpd',2,12,15,60,'A',null,'Pump'],
+        ['fcrl',3,8,15,60,null,null,'To failure']
       ])
     ]},
     history:[],session:null
@@ -802,7 +819,7 @@ function renderProgram(){
         <button class="btn sm" onclick="toggleUnit()">Units: ${S.unit}</button>
         <button class="btn sm" onclick="restoreAuto()">Restore auto-backup</button>
       </div>
-      <button class="btn sm wide mt danger" onclick="wipe()">Reset to Recomp (erases history)</button>
+      <button class="btn sm wide mt danger" onclick="wipe()">Reset to Upper 5-Day (erases history)</button>
       <p class="tiny dim2 mt">Your ${S.history.length} sessions live in this browser's storage on this device. Updating the site never touches them. Export a backup now and then anyway — clearing Safari's website data would take them with it.</p>
       <p class="tiny dim2">Build ${BUILD}</p>
     </div>`;
@@ -1117,7 +1134,7 @@ function importData(){
 function doImport(){
   try{const o=JSON.parse($('impt').value);
     if(!o.program||!o.history)throw 0;
-    S=o;S.session=null;save();closeSheet();render();toast('Backup restored');
+    S=o;S.planVer=S.planVer||PLAN_VER;S.session=null;save();closeSheet();render();toast('Backup restored');
   }catch(e){toast('That backup could not be read');}
 }
 
@@ -1134,7 +1151,7 @@ function restoreAuto(){
   if(!b||!b.data) return toast('No auto-backup on this device yet');
   const when=new Date(b.at).toLocaleString('en-AU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'});
   if(!confirm('Roll back to the snapshot taken '+when+' ('+b.sessions+' sessions)? Anything logged since then is lost.')) return;
-  S=normalize(b.data);S.session=null;save();render();toast('Auto-backup restored');
+  S=normalize(b.data);S.planVer=S.planVer||PLAN_VER;S.session=null;save();render();toast('Auto-backup restored');
 }
 /* repair anything a half-written save or an older build left behind */
 function normalize(o){
@@ -1157,7 +1174,10 @@ function save(){DB.save(S);}
 (async()=>{
   S=await DB.load();
   if(!S||!S.program||!S.program.days){S=seed();await DB.save(S);}
-  else{autoBackup(S);S=normalize(S);}
+  else{
+    autoBackup(S);S=normalize(S);
+    if((S.planVer||1)<PLAN_VER){S.program=seed().program;S.planVer=PLAN_VER;await DB.save(S);}
+  }
   render();
 })();
 if('serviceWorker' in navigator && location.protocol==='https:'){
